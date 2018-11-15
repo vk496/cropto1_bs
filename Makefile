@@ -2,7 +2,7 @@ CC = gcc
 CXX = g++
 LD = g++
 
-CFLAGS=-Wall
+CFLAGS=-Wall -g -g3
 
 csrc = $(wildcard *.c) \
        $(wildcard crapto1/*.c) \
@@ -39,7 +39,7 @@ LDFLAGS = -lz -lm -lreadline -lpthread
 
 
 
-main: $(obj) $(MULTIARCHOBJS)
+cropto1_bs: $(obj) $(MULTIARCHOBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
 
@@ -86,4 +86,4 @@ hardnested/hardnested_bitarray_core_AVX512.o : hardnested/hardnested_bitarray_co
 
 .PHONY: clean
 clean:
-	rm -f $(obj) main $(MULTIARCHOBJS)
+	rm -f $(obj) cropto1_bs $(MULTIARCHOBJS)

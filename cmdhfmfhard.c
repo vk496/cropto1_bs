@@ -242,6 +242,17 @@ static void init_inflate(z_streamp compressed_stream, uint8_t *input_buffer, uin
 	
 }
 
+const char *get_my_executable_directory() {
+    char cwd[1024];
+    static char dir_path[sizeof(cwd) + 1];
+    
+    if (getcwd(cwd, sizeof(cwd)) == NULL) {
+        perror("getcwd() error");
+        exit(EXIT_FAILURE);
+    }
+    snprintf(dir_path, sizeof dir_path, "%s%s", cwd, "/");
+    return dir_path;
+}
 
 static void init_bitflip_bitarrays(void)
 {
@@ -252,7 +263,7 @@ static void init_bitflip_bitarrays(void)
 
 	z_stream compressed_stream;
 	
-	char state_files_path[strlen(".") + strlen(STATE_FILES_DIRECTORY) + strlen(STATE_FILE_TEMPLATE) + 1];
+	char state_files_path[strlen(get_my_executable_directory()) + strlen(STATE_FILES_DIRECTORY) + strlen(STATE_FILE_TEMPLATE) + 1];
 	char state_file_name[strlen(STATE_FILE_TEMPLATE)+1];
 	
 	for (odd_even_t odd_even = EVEN_STATE; odd_even <= ODD_STATE; odd_even++) {
@@ -261,7 +272,7 @@ static void init_bitflip_bitarrays(void)
 			bitflip_bitarrays[odd_even][bitflip] = NULL;
 			count_bitflip_bitarrays[odd_even][bitflip] = 1<<24;
 			sprintf(state_file_name, STATE_FILE_TEMPLATE, odd_even, bitflip);
-			strcpy(state_files_path, ".");
+			strcpy(state_files_path, get_my_executable_directory());
 			strcat(state_files_path, STATE_FILES_DIRECTORY);
 			strcat(state_files_path, state_file_name);
 			FILE *statesfile = fopen(state_files_path, "rb");
@@ -2600,6 +2611,7 @@ int mfnestedhard(uint8_t blockNo, uint8_t keyType, uint8_t *key, uint8_t trgBloc
 					// printf("Time for generating key candidates list: %1.0f sec (%1.1f sec CPU)\n", difftime(time(NULL), start_time), (float)(msclock() - start_clock)/1000.0);
 					hardnested_print_progress(num_acquired_nonces, "Starting brute force...", expected_brute_force, 0);
 					key_found = brute_force();
+                                        PrintAndLog("vk496");
 					free_statelist_cache();
 					free_candidates_memory(candidates);
 					candidates = NULL;
