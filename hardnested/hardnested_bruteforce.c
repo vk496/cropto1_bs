@@ -74,10 +74,6 @@ THE SOFTWARE.
 #define DEBUG_KEY_ELIMINATION
 // #define DEBUG_BRUTE_FORCE
 
-typedef enum {
-	EVEN_STATE = 0,
-	ODD_STATE = 1
-} odd_even_t;
 
 static uint32_t nonces_to_bruteforce = 0;
 static uint32_t bf_test_nonce[256];

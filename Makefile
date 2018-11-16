@@ -2,11 +2,12 @@ CC = gcc
 CXX = g++
 LD = g++
 
-CFLAGS=-Wall -g -g3
+CFLAGS=-std=c11 -Wall -g -g3
 
 csrc = $(wildcard *.c) \
        $(wildcard crapto1/*.c) \
-       hardnested/hardnested_bruteforce.c
+       hardnested/hardnested_bruteforce.c \
+       hardnested/tables.c
 
 obj = $(csrc:.c=.o)
 MULTIARCHSRCS = hardnested/hardnested_bf_core.c hardnested/hardnested_bitarray_core.c
@@ -33,7 +34,7 @@ ifeq "$(SUPPORTS_AVX512)" "True"
 	MULTIARCHOBJS +=  $(MULTIARCHSRCS:%.c=%_AVX512.o)
 endif
 	
-LDFLAGS = -lz -lm -lreadline -lpthread
+LDFLAGS = -lz -lm -lreadline -lpthread -llzma
 
 .PHONY: all clean
 

@@ -161,10 +161,6 @@ static void *malloc_bitslice(size_t x) {
 #define free_bitslice(x) free(x)
 #endif
 
-typedef enum {
-	EVEN_STATE = 0,
-	ODD_STATE = 1
-} odd_even_t;
 
 
 // arrays of bitsliced states with identical values in all slices

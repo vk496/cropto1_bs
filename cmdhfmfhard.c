@@ -36,6 +36,7 @@
 #include "hardnested/hardnested_bf_core.h"
 #include "hardnested/hardnested_bitarray_core.h"
 #include <zlib.h>
+#include "hardnested/tables.h"
 
 #define NUM_CHECK_BITFLIPS_THREADS		(num_CPUs())
 #define NUM_REDUCTION_WORKING_THREADS	(num_CPUs())
@@ -52,10 +53,6 @@ static uint16_t sums[NUM_SUMS] = {0, 32, 56, 64, 80, 96, 104, 112, 120, 128, 136
 
 #define NUM_PART_SUMS 					9		// number of possible partial sum property values
 
-typedef enum {
-	EVEN_STATE = 0,
-	ODD_STATE = 1
-} odd_even_t;
 
 static uint32_t num_acquired_nonces = 0;
 static uint64_t start_time = 0;
@@ -265,7 +262,8 @@ static void init_bitflip_bitarrays(void)
 	
 	char state_files_path[strlen(get_my_executable_directory()) + strlen(STATE_FILES_DIRECTORY) + strlen(STATE_FILE_TEMPLATE) + 1];
 	char state_file_name[strlen(STATE_FILE_TEMPLATE)+1];
-	
+        
+//        bitflip_info ttt = get_bitflip(2);
 	for (odd_even_t odd_even = EVEN_STATE; odd_even <= ODD_STATE; odd_even++) {
 		num_effective_bitflips[odd_even] = 0;
 		for (uint16_t bitflip = 0x001; bitflip < 0x400; bitflip++) {
@@ -276,6 +274,7 @@ static void init_bitflip_bitarrays(void)
 			strcat(state_files_path, STATE_FILES_DIRECTORY);
 			strcat(state_files_path, state_file_name);
 			FILE *statesfile = fopen(state_files_path, "rb");
+                        bitflip_info p = get_bitflip(odd_even, bitflip);
 			if (statesfile == NULL) {
 				continue;
 			} else {

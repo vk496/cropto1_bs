@@ -16,6 +16,11 @@
 
 #define NUM_SUMS 						19		// number of possible sum property values
 
+typedef enum {
+	EVEN_STATE = 0,
+	ODD_STATE = 1
+} odd_even_t;
+
 typedef struct guess_sum_a8 {
 	float prob;
 	uint64_t num_states;
