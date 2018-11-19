@@ -258,10 +258,11 @@ static void init_bitflip_bitarrays(void)
 #endif	
 
 
-	z_stream compressed_stream;
+//	z_stream compressed_stream;
+        lzma_stream strm = LZMA_STREAM_INIT;
 	
-	char state_files_path[strlen(get_my_executable_directory()) + strlen(STATE_FILES_DIRECTORY) + strlen(STATE_FILE_TEMPLATE) + 1];
-	char state_file_name[strlen(STATE_FILE_TEMPLATE)+1];
+//	char state_files_path[strlen(get_my_executable_directory()) + strlen(STATE_FILES_DIRECTORY) + strlen(STATE_FILE_TEMPLATE) + 1];
+//	char state_file_name[strlen(STATE_FILE_TEMPLATE)+1];
         
 //        bitflip_info ttt = get_bitflip(2);
 	for (odd_even_t odd_even = EVEN_STATE; odd_even <= ODD_STATE; odd_even++) {
@@ -269,41 +270,46 @@ static void init_bitflip_bitarrays(void)
 		for (uint16_t bitflip = 0x001; bitflip < 0x400; bitflip++) {
 			bitflip_bitarrays[odd_even][bitflip] = NULL;
 			count_bitflip_bitarrays[odd_even][bitflip] = 1<<24;
-			sprintf(state_file_name, STATE_FILE_TEMPLATE, odd_even, bitflip);
-			strcpy(state_files_path, get_my_executable_directory());
-			strcat(state_files_path, STATE_FILES_DIRECTORY);
-			strcat(state_files_path, state_file_name);
-			FILE *statesfile = fopen(state_files_path, "rb");
+//			sprintf(state_file_name, STATE_FILE_TEMPLATE, odd_even, bitflip);
+//			strcpy(state_files_path, get_my_executable_directory());
+//			strcat(state_files_path, STATE_FILES_DIRECTORY);
+//			strcat(state_files_path, state_file_name);
+//			FILE *statesfile = fopen(state_files_path, "rb");
                         bitflip_info p = get_bitflip(odd_even, bitflip);
-			if (statesfile == NULL) {
-				continue;
-			} else {
-				fseek(statesfile, 0, SEEK_END);
-				uint32_t filesize = (uint32_t)ftell(statesfile);
-				rewind(statesfile);
-				uint8_t input_buffer[filesize];
-				size_t bytesread = fread(input_buffer, 1, filesize, statesfile);
-				if (bytesread != filesize) {
-					printf("File read error with %s. Aborting...\n", state_file_name);
-					fclose(statesfile);
-					exit(5);
-				}
-				fclose(statesfile);
+			if (p.input_buffer != NULL) {
+//				continue;
+//			} else {
+//				fseek(statesfile, 0, SEEK_END);
+//				uint32_t filesize = (uint32_t)ftell(statesfile);
+//				rewind(statesfile);
+//				uint8_t input_buffer[filesize];
+//				size_t bytesread = fread(input_buffer, 1, filesize, statesfile);
+//				if (bytesread != filesize) {
+//					printf("File read error with %s. Aborting...\n", state_file_name);
+//					fclose(statesfile);
+//					exit(5);
+//				}
+//				fclose(statesfile);
 				uint32_t count = 0;
-				init_inflate(&compressed_stream, input_buffer, filesize, (uint8_t *)&count, sizeof(count));
-				inflate(&compressed_stream, Z_SYNC_FLUSH);
+//				init_inflate(&compressed_stream, input_buffer, filesize, (uint8_t *)&count, sizeof(count));
+                                lzma_init_inflate(&strm, p.input_buffer, p.len, (uint8_t *)&count, sizeof(count));
+//				inflate(&compressed_stream, Z_SYNC_FLUSH);
 				if ((float)count/(1<<24) < IGNORE_BITFLIP_THRESHOLD) {
 					uint32_t *bitset = (uint32_t *)malloc_bitarray(sizeof(uint32_t) * (1<<19));
 					if (bitset == NULL) {
 						printf("Out of memory error in init_bitflip_statelists(). Aborting...\n");
-						inflateEnd(&compressed_stream);
+//						inflateEnd(&compressed_stream);
+                                                lzma_end(&strm);
 						exit(4);
 					}
-					compressed_stream.next_out = (uint8_t *)bitset;
-					compressed_stream.avail_out = sizeof(uint32_t) * (1<<19);
-					inflate(&compressed_stream, Z_SYNC_FLUSH);
+//					compressed_stream.next_out = (uint8_t *)bitset;
+//					compressed_stream.avail_out = sizeof(uint32_t) * (1<<19);
+//					inflate(&compressed_stream, Z_SYNC_FLUSH);
+                                        lzma_init_inflate(&strm, p.input_buffer, p.len, (uint8_t *)bitset, sizeof(uint32_t) * (1<<19));
+//                                        bitset++; //ignore first 4 bytes
 					effective_bitflip[odd_even][num_effective_bitflips[odd_even]++] = bitflip;
 					bitflip_bitarrays[odd_even][bitflip] = bitset;
+                                        bitflip_bitarrays[odd_even][bitflip]++;
 					count_bitflip_bitarrays[odd_even][bitflip] = count;
 #if defined (DEBUG_REDUCTION)
 					printf("(%03" PRIx16 " %s:%5.1f%%) ", bitflip, odd_even?"odd ":"even", (float)count/(1<<24)*100.0);
@@ -314,11 +320,12 @@ static void init_bitflip_bitarrays(void)
 					}
 #endif
 				}
-				inflateEnd(&compressed_stream);
+//				inflateEnd(&compressed_stream);
 			}
 		}
 		effective_bitflip[odd_even][num_effective_bitflips[odd_even]] = 0x400;	// EndOfList marker
 	}
+        lzma_end(&strm);
 
 	uint16_t i = 0;
 	uint16_t j = 0;
@@ -361,12 +368,15 @@ static void init_bitflip_bitarrays(void)
 
 static void	free_bitflip_bitarrays(void)
 {
-	for (int16_t bitflip = 0x3ff; bitflip > 0x000; bitflip--) {
-		free_bitarray(bitflip_bitarrays[ODD_STATE][bitflip]);
-	}
-	for (int16_t bitflip = 0x3ff; bitflip > 0x000; bitflip--) {
-		free_bitarray(bitflip_bitarrays[EVEN_STATE][bitflip]);
-	}
+
+    for (odd_even_t odd_even = EVEN_STATE; odd_even <= ODD_STATE; odd_even++) {
+        for (uint16_t bitflip = 0x001; bitflip < 0x400; bitflip++) {
+            if (bitflip_bitarrays[odd_even][bitflip] != NULL) {
+                bitflip_bitarrays[odd_even][bitflip]--;
+                free_bitarray(bitflip_bitarrays[odd_even][bitflip]);
+            }
+        }
+    }
 }
 
 

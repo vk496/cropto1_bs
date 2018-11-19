@@ -2,7 +2,8 @@ CC = gcc
 CXX = g++
 LD = g++
 
-CFLAGS=-std=c11 -Wall -g -g3
+#CFLAGS=-std=c11 -Wall -g -g3 -DDEBUG_REDUCTION
+CFLAGS=-std=c11 -Wall -O3
 
 csrc = $(wildcard *.c) \
        $(wildcard crapto1/*.c) \
