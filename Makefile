@@ -35,7 +35,7 @@ ifeq "$(SUPPORTS_AVX512)" "True"
 	MULTIARCHOBJS +=  $(MULTIARCHSRCS:%.c=%_AVX512.o)
 endif
 	
-LDFLAGS = -lz -lm -lreadline -lpthread -llzma
+LDFLAGS = -lz -lm -lreadline -lpthread -llzma -lnfc
 
 .PHONY: all clean
 

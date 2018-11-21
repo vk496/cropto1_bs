@@ -29,23 +29,33 @@ int hextobin(const char *hexstring, uint8_t *val) {
     return 0;
 }
 
-int main(void) {
+int main(int argc, const char * argv[]) {
 
     printf("Hello, world!\n");
-    uint8_t blockNo = strtoul("0", NULL, 10) & 0xff;
+    if(argc < 6){
+        printf("%s <known key> <for block> <A|B> <target block> <A|B>\n", argv[0]);
+        return 1;
+    }
+    
+    uint8_t blockNo = atoi(argv[2]);
     uint8_t keyType = 0; //A=0 or B=1
-    const char hexstring[] = "001122334455";
-    uint8_t key[6] = {0, 0, 0, 0, 0, 0};
-    uint8_t trgBlockNo = strtoul("60", NULL, 10) & 0xff;
+    if(argv[3][0] == 'b' || argv[3][0] == 'B'){
+       keyType = 1;
+    }
+    uint8_t key[6] = {0};
+    uint8_t trgBlockNo = atoi(argv[4]);
     uint8_t trgKeyType = 0; //A=0 or B=1
+    if(argv[5][0] == 'b' || argv[5][0] == 'B'){
+       trgKeyType = 1;
+    }
     uint8_t *trgkey = NULL;
-    bool nonce_file_read = true; // use pre-acquired data from file nonces.bin
+    bool nonce_file_read = false; // use pre-acquired data from file nonces.bin
     bool nonce_file_write = false; //?
     bool slow = false; //not the case
     int tests = 0; //?
         
-    hextobin(hexstring, key);
-
+    hextobin(argv[1], key);
+    
     mfnestedhard(blockNo, keyType, key, trgBlockNo, trgKeyType, trgkey, nonce_file_read, nonce_file_write, slow, tests);
 
     printf("test\n");
