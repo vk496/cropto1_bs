@@ -16,13 +16,13 @@
 #include <stddef.h>
 
 #ifndef ROTR
-# define ROTR(x,n) (((uintmax_t)(x) >> (n)) | ((uintmax_t)(x) << ((sizeof(x) * 8) - (n))))
+#define ROTR(x,n) (((uintmax_t)(x) >> (n)) | ((uintmax_t)(x) << ((sizeof(x) * 8) - (n))))
 #endif
 #ifndef MIN
-# define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 #ifndef MAX
-# define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #endif
 #ifndef arraylen
 #define arraylen(x) (sizeof(x)/sizeof((x)[0]))
@@ -43,8 +43,8 @@ extern void AddLogUint64(char *fileName, char *extData, const uint64_t data);
 extern void AddLogCurrentDT(char *fileName);
 extern void FillFileNameByUID(char *fileName, uint8_t * uid, char *ext, int byteCount);
 
-extern void hex_to_buffer(const uint8_t *buf, const uint8_t *hex_data, const size_t hex_len, 
-	const size_t hex_max_len, const size_t min_str_len, const size_t spaces_between, bool uppercase);
+extern void hex_to_buffer(const uint8_t *buf, const uint8_t *hex_data, const size_t hex_len,
+        const size_t hex_max_len, const size_t min_str_len, const size_t spaces_between, bool uppercase);
 
 extern char *sprint_hex(const uint8_t * data, const size_t len);
 extern char *sprint_hex_inrow(const uint8_t *data, const size_t len);
@@ -55,7 +55,7 @@ extern char *sprint_ascii_ex(const uint8_t *data, const size_t len, const size_t
 
 extern void num_to_bytes(uint64_t n, size_t len, uint8_t* dest);
 extern uint64_t bytes_to_num(uint8_t* src, size_t len);
-extern void num_to_bytebits(uint64_t	n, size_t len, uint8_t *dest);
+extern void num_to_bytebits(uint64_t n, size_t len, uint8_t *dest);
 extern void num_to_bytebitsLSBF(uint64_t n, size_t len, uint8_t *dest);
 extern char *printBits(size_t const size, void const * const ptr);
 extern char * printBitsPar(const uint8_t *b, size_t len);
@@ -77,9 +77,9 @@ extern int param_gethex_ex(const char *line, int paramnum, uint8_t * data, int *
 extern int param_gethex_to_eol(const char *line, int paramnum, uint8_t * data, int maxdatalen, int *datalen);
 extern int param_getstr(const char *line, int paramnum, char * str, size_t buffersize);
 
-extern int hextobinarray( char *target,  char *source);
-extern int binarraytohex( char *target,  char *source,  int length);
-extern uint8_t GetParity( uint8_t *string, uint8_t type,  int length);
+extern int hextobinarray(char *target, char *source);
+extern int binarraytohex(char *target, char *source, int length);
+extern uint8_t GetParity(uint8_t *string, uint8_t type, int length);
 extern void wiegand_add_parity(uint8_t *target, uint8_t *source, uint8_t length);
 
 extern void xor(unsigned char *dst, unsigned char *src, size_t len);
@@ -90,6 +90,6 @@ void strcleanrn(char *buf, size_t len);
 void strcreplace(char *buf, size_t len, char from, char to);
 char *strmcopy(char *buf);
 
-extern int num_CPUs(void);			// number of logical CPUs
+extern int num_CPUs(void); // number of logical CPUs
 
 #endif // UTIL_H__

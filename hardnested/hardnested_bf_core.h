@@ -45,21 +45,21 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-*/
+ */
 
 #ifndef HARDNESTED_BF_CORE_H__
 #define HARDNESTED_BF_CORE_H__
 
-#include "hardnested_bruteforce.h"			// statelist_t
+#include "hardnested_bruteforce.h"   // statelist_t
 
 typedef enum {
-	SIMD_AUTO,
-	SIMD_AVX512,
-	SIMD_AVX2,
-	SIMD_AVX,
-	SIMD_SSE2,
-	SIMD_MMX,
-	SIMD_NONE,
+    SIMD_AUTO,
+    SIMD_AVX512,
+    SIMD_AVX2,
+    SIMD_AVX,
+    SIMD_SSE2,
+    SIMD_MMX,
+    SIMD_NONE,
 } SIMDExecInstr;
 extern void SetSIMDInstr(SIMDExecInstr instr);
 extern SIMDExecInstr GetSIMDInstrAuto();

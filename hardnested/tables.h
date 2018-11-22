@@ -24,7 +24,6 @@
 #include <lzma.h>
 #include "../cmdhfmfhard.h"
 
-
 typedef struct bitflip_info {
     uint32_t len;
     uint8_t *input_buffer;
